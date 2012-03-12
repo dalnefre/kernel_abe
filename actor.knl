@@ -1,0 +1,136 @@
+;;; Stateful Queue (after SICP 3.3.2)
+($provide! (new-q q? q-empty? q-put! q-take!)
+	($define! q? pair?)
+	($define! new-q
+		($lambda ()
+			(cons () ())))
+	($define! q-empty?
+		($lambda (q)
+			(null? (car q))))
+	($define! q-put!
+		($lambda (q x)
+			($let ((item (cons x ())))
+				($if (null? (car q))
+					(set-car! q item)
+					(set-cdr! (cdr q) item))
+				(set-cdr! q item))))
+	($define! q-take!
+		($lambda (q)
+			($let ((item (car q)))
+				(set-car! q (cdr item))
+				(car item)))))
+;;; Encapsulated Stateful Queue (after SICP 3.3.2)
+($provide! (new-queue queue? queue-empty? queue-put! queue-take!)
+	($define! (e-queue queue? d-queue) (make-encapsulation-type))
+	($define! new-queue
+		($lambda ()
+			(e-queue (cons () ()))))
+	($define! queue-empty?
+		($lambda (this)
+			($let ((obj (d-queue this)))
+				(null? (car obj)))))
+	($define! queue-put!
+		($lambda (this x)
+			($let ((obj (d-queue this)) (item (cons x ())))
+				($if (null? (car obj))
+					(set-car! obj item)
+					(set-cdr! (cdr obj) item))
+				(set-cdr! obj item))))
+;				($cond
+;					((null? (car obj))
+;						(set-car! obj item)
+;						(set-cdr! obj item))
+;					(#t
+;						(set-cdr! (cdr obj) item)
+;						(set-cdr! obj item))))))
+	($define! queue-take!
+		($lambda (this)
+			($let ((obj (d-queue this)))
+				($let ((item (car obj)))
+					(set-car! obj (cdr item))
+					(car item))))))
+
+;;;
+;;; FILE: actor.knl
+;;;
+
+($define! $quote
+	($vau (x) #ignore
+		x))
+
+($define! $make-label-predicate
+	($vau (label) #ignore
+		($lambda (x) (equal? x label))))
+
+;; actor: (<behavior> . <configuration>)
+;; event: (<actor> . <message>)
+;; (<behavior> <actor> . <message>)  ; invoke an actor's behavior
+;; ($behavior <msg-ptrn> . <body>)  ; create an actor behavior
+
+($provide! (CREATE actor? $behavior behavior? SEND! RUN!)
+	($define! (e-actor actor? d-actor) (make-encapsulation-type))
+	($define! (e-beh behavior? d-beh) (make-encapsulation-type))
+	($define! events (new-queue))
+	($define! CREATE
+		($lambda (beh)
+			($let ((actor (e-actor (cons () ()))))
+				(set-beh! actor beh)
+				actor)))
+	($define! get-beh-fn
+		($lambda (actor)
+			(car (d-actor actor))))
+	($define! set-beh!
+		($lambda (actor beh)
+			(set-car!
+				(d-actor actor)
+				((d-beh beh) actor))))
+	($define! $behavior
+		($vau (msg-ptrn . body) env
+			(e-beh ($lambda (actor)
+				(eval
+					(list* $lambda msg-ptrn body)
+					(make-actor-env actor env))))))
+	($define! make-actor-env
+		($lambda (actor env)
+			($let ((env (make-environment env)))
+				($set! env SELF actor)
+				($set! env BECOME!
+					($lambda (beh)
+						(set-beh! actor beh)))
+				env)))
+	($define! SEND!
+		($lambda (actor . message)
+			($if (actor? actor)
+				(queue-put! events (cons actor message))
+				(d-actor actor))))  ; signal an error
+	($define! RUN!
+		($lambda ()
+			($if (queue-empty? events)
+				#inert
+				($sequence
+					(dispatch! (queue-take! events))
+					(RUN!)))))
+	($define! dispatch!
+		($lambda ((actor . message))
+			(apply (get-beh-fn actor) message))))
+
+;;; Example Usage
+
+($define! sink_beh ($behavior #ignore))
+($define! sink (CREATE sink_beh))
+($define! println
+	(CREATE ($behavior (msg)
+		(write msg)
+		(newline))))
+($define! tag_beh
+	($lambda (cust)
+		($behavior (msg)
+			(SEND! cust (cons SELF msg))
+			(BECOME! sink_beh))))
+($define! tag
+	(CREATE (tag_beh println)))
+(SEND! sink 0)
+(SEND! tag 1)
+(SEND! tag 2)
+(SEND! println 3)
+(RUN!)

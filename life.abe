@@ -1,0 +1,48 @@
+--- Conway's "Game of Life" built on the Actor model
+
+int_generator =
+	BEHAVIOR {step, limit, label, ctx, send-to}
+	{next:$next} ->
+		IF preceeds(0, $step)
+		END
+	DONE
+
+int_generator(next:<next>){step:<step>, limit:<limit>, label:<label>, ctx:<ctx>, send-to:<send-to>} =
+	IF preceeds?(0, <step>)
+		IF NOT preceeds?(<limit>, <next>)
+			map_put(<ctx>, <label>, <next>) => <send-to>
+			{next:sum(<next>, <step>)} => self()
+	ELSE
+		IF NOT preceeds?(<next>, <limit>)
+			map_put(<ctx>, <label>, <next>) => <send-to>
+			{next:sum(<next>, <step>)} => self()
+
+seq_generator(<msg>){next:<next>, step:<step>, limit:<limit>, label:<label>, ctx:<ctx>, send-to:<send-to>} =
+	<ctx> := map_put_all(<ctx>, <msg>)
+	{next:<next>} => actor(int_generator, {step:<step>, limit:<limit>, label:<label>, ctx:<ctx>, send-to:<send-to>})
+
+cell_actor(request:<request>, reply-to:<reply-to>){value:<value>, x:<x>, y:<y>} =
+	IF equal?(<request>, update-grid)
+		set_grid_value(<x>, <y>, <value>)
+	ELIF equal?(<request>, gen-next)
+		<n> := count_neighbors(<x>, <y>)
+		IF equal?(<value>, EMPTY)
+			IF equal?(<n>, 3)
+				become(cell_actor, {value:FULL, x:<x>, y:<y>})
+		ELIF equal?(<value>, FULL)
+			IF preceed?(<n>, 2) OR preceed?(3, <n>)
+				become(cell_actor, {value:FULL, x:<x>, y:<y>})
+	ELIF equal?(<request>, die)
+		set_grid_value(<x>, <y>, DEAD)
+
+ask_cell(x:<x>, y:<y>){request:<request>, reply-to:<reply-to>} =
+	<cell> := get_cell(<x>, <y>)
+	{request:<request>, reply-to:<reply-to>} => <cell>
+
+ask_all_cells(request:<request>, reply-to:<reply-to>){} =
+	<cell> := actor(ask_cell, {request:<request>, reply-to:<reply-to>})
+	<cols> := actor(seq_generator,
+		{next:0, step:1, limit:(<y-max> - 1), label:y, ctx:(), send-to:<cell>})
+	<rows> := actor(int_generator,
+		{step:1, limit:(<x-max> - 1), label:x, ctx:(), send-to:<cols>})
+	{next:0} => <rows>

@@ -1,0 +1,25 @@
+;;;
+;;; Kernel standard library
+;;;
+
+($define! car ($lambda ((x . #ignore)) x))
+($define! cdr ($lambda ((#ignore . x)) x))
+($define! equal?
+	($lambda (x y)
+		($if (pair? x)
+			($if (equal? (car x) (car y))
+				(equal? (cdr x) (cdr y))
+				#f)
+			(eq? x y))))
+
+;;;
+;;; Bonus definitions
+;;;
+
+($define! Y  ; applicative Y-combinator (recursive fixed-point)
+	($lambda (f) 
+		(($lambda (g) 
+			(g g)) 
+			($lambda (h) 
+				($lambda (x) 
+					((f (h h)) x))))))

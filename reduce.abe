@@ -1,0 +1,213 @@
+--- Reduce: A LISP/Scheme-like Evaluation System
+
+label_msg(<msg>){label:<label>, ctx:<ctx>, cont:<cont>} =
+	{<label>:<msg>} + <ctx> => <cont>
+
+unlabel_msg(<label>:<value>){label:<label>, cont:<cont>} =
+	<value> => <cont>
+
+apply_expr(expr:<expr>){form:<form>, cont:<cont>, env:<env>} =
+	{expr:<form>, cont:<cont>, env:<env>} => expr
+
+reduce_expr(expr:<expr>, cont:<cont>, env:<env>){} =
+	IF symbol?(<expr>)
+		{expr:map(<env>, <expr>)} => <cont>
+	ELIF empty?(<expr>)
+		{expr:<expr>} => <cont>
+	ELSE
+		{expr:first(<expr>), cont:actor(apply_expr, {form:rest(<expr>), cont:<cont>, env:<env>}), env:<env>} => self()
+
+apply_reduce(expr:<expr>){cont:<cont>, env:<env>} =
+	{expr:<expr>, cont:<cont>, env:<env>} => reduce
+
+reduce_reduce(expr:<expr>, cont:<cont>, env:<env>){} =
+	IF list?(expr)
+		{expr:first(<expr>), cont:actor(apply_reduce, {cont:<cont>, env:<env>}), env:<env>} => reduce
+	ELSE
+		{expr:_} => cont
+
+reduce_literal(expr:<expr>, cont:<cont>, env:<env>){} =
+	{expr:<expr>} => <cont>
+
+reduce_and_apply(expr:<expr>, cont:<cont>, env:<env>){beh:<beh>} =
+	<apply> = actor(<beh>, {cont:<cont>, env:<env>})
+	{expr:<expr>, cont:<apply>, env:<env>} => reduce_args
+
+eval_list(expr:<expr>){cont:<cont>, env:<env>} =
+	{expr:<expr>} => <cont>
+
+eval_first(expr:<expr>){cont:<cont>, env:<env>} =
+	IF list?(<expr>)
+		{expr:first(first(<expr>))} => <cont>
+	ELSE
+		{expr:_} => <cont>
+
+eval_rest(expr:<expr>){cont:<cont>, env:<env>} =
+	IF list?(<expr>)
+		{expr:rest(first(<expr>))} => <cont>
+	ELSE
+		{expr:_} => <cont>
+
+eval_prepend(expr:<expr>){cont:<cont>, env:<env>} =
+	{expr:prepend(first(<expr>), second(<expr>))} => <cont>
+
+eval_list?(expr:<expr>){cont:<cont>, env:<env>} =
+	IF list?(first(<expr>))
+		{expr:TRUE} => <cont>
+	ELSE
+		{expr:FALSE} => <cont>
+
+eval_empty?(expr:<expr>){cont:<cont>, env:<env>} =
+	IF empty?(first(<expr>))
+		{expr:TRUE} => <cont>
+	ELSE
+		{expr:FALSE} => <cont>
+
+eval_number?(expr:<expr>){cont:<cont>, env:<env>} =
+	IF number?(first(<expr>))
+		{expr:TRUE} => <cont>
+	ELSE
+		{expr:FALSE} => <cont>
+
+eval_zero?(expr:<expr>){cont:<cont>, env:<env>} =
+	IF zero?(first(<expr>))
+		{expr:TRUE} => <cont>
+	ELSE
+		{expr:FALSE} => <cont>
+
+eval_equal?(expr:<expr>){cont:<cont>, env:<env>} =
+	IF equal?(first(<expr>), second(<expr>))
+		{expr:TRUE} => <cont>
+	ELSE
+		{expr:FALSE} => <cont>
+
+eval_preceed?(expr:<expr>){cont:<cont>, env:<env>} =
+	IF number?(first(<expr>)) AND number?(second(<expr>))
+		IF preceed?(first(<expr>), second(<expr>))
+			{expr:TRUE} => <cont>
+		ELSE
+			{expr:FALSE} => <cont>
+	ELSE
+		{expr:_} => <cont>
+
+apply_if(expr:<expr>){form:<form>, cont:<cont>, env:<env>} =
+	IF equal?(<expr>, TRUE)
+		{expr:first(<form>), cont:<cont>, env:<env>} => reduce
+	ELIF equal?(<expr>, FALSE)
+		{expr:second(<form>), cont:<cont>, env:<env>} => reduce
+	ELSE
+		{expr:_} => <cont>
+
+reduce_if(expr:<expr>, cont:<cont>, env:<env>){} =
+	IF list?(<expr>) AND list?(rest(expr)) AND list?(rest(rest(expr)))
+		{expr:first(<expr>), cont:actor(apply_if, {form:rest(expr), cont:<cont>, env:<env>}), env:<env>} => reduce
+	ELSE
+		{expr:_} => <cont>
+
+apply_define(expr:<expr>){binding:<binding>, cont:<cont>} =
+	rplacd(<binding>, <expr>) => <cont>
+
+reduce_define(expr:<expr>, cont:<cont>, env:<env>){} =
+	IF atom?(first(<expr>))
+		<binding> := extend_env(<env>, first(<expr>), _)
+		<apply> := actor(apply_define, {binding:<binding>, cont:<cont>})
+		{expr:second(<expr>), cont:<apply>, env:<env>} => reduce
+	ELSE
+		{expr:_} => <cont>
+
+apply_sum(expr:<expr>){acc:<acc>, form:<form>, cont:<cont>, env:<env>} =
+	IF number?(<expr>)
+		<acc> = <acc> + <expr>
+		IF empty?(<form>)
+			{expr:<acc>} => <cont>
+		ELSE
+			become(apply_sum, {acc:<acc>, form:rest(<form>), cont:<cont>, env:<env>})
+			{expr:first(<form>), cont:self(), env:<env>} => reduce
+	ELSE
+		{expr:_} => <cont>
+
+reduce_sum(expr:<expr>, cont:<cont>, env:<env>){} =
+	<actor> = actor(apply_sum, {acc:0, form:rest(<expr>), cont:<cont>, env:<env>})
+	{expr:first(<expr>), cont:<actor>, env:<env>} => reduce
+
+template(expr:<expr>, cont:<cont>, env:<env>){vars:<vars>, body:<body>} =
+	{expr:replace(<body>, map_def(<vars>, <expr>)), cont:<cont>, env:<env>} => reduce
+
+reduce_template(expr:<expr>, cont:<cont>, env:<env>){} =
+	{expr:actor(template, {vars:first(<expr>), body:second(<expr>)})} => <cont>
+
+eval_function(expr:<expr>){vars:<vars>, body:<body>, cont:<cont>, env:<env>} =
+	IF list?(<vars>)
+		<env> := map_put_all(<env>, map_def(<vars>, <expr>))
+	ELIF atom?(<vars>)
+		<env> := map_put(<env>, <vars>, <expr>)
+	{expr:<body>, cont:<cont>, env:<env>} => reduce
+
+function(expr:<expr>, cont:<cont>, env:<dyn>){vars:<vars>, body:<body>, env:<lex>} =
+	<apply> := actor(eval_function, {vars:<vars>, body:<body>, cont:<cont>, env:<lex>})
+	{expr:<expr>, cont:<apply>, env:<dyn>} => reduce_args
+
+reduce_function(expr:<expr>, cont:<cont>, env:<env>){} =
+	{expr:actor(function, {vars:first(<expr>), body:second(<expr>), env:<env>})} => <cont>
+
+eval_send(expr:<expr>){cont:<cont>, env:<env>} =
+	IF actor?(first(expr))
+		second(expr) => first(expr)
+		{expr:second(expr)} => <cont>
+	ELSE
+		{expr:_} => <cont>
+
+reduce_background(expr:<expr>, cont:<cont>, env:<env>){} =
+	{expr:<expr>, cont:sink, env:<env>} => reduce_args
+	{expr:NIL} => <cont>
+
+apply_seq(expr:<expr>){acc:<acc>, form:<form>, cont:<cont>, env:<env>} =
+	<acc> := prepend(<expr>, <acc>)
+	IF empty?(<form>)
+		{expr:reverse(<acc>)} => <cont>
+	ELSE
+		become(apply_seq, {acc:<acc>, form:rest(<form>), cont:<cont>, env:<env>})
+		{expr:first(<form>), cont:self(), env:<env>} => reduce
+
+reduce_seq(expr:<expr>, cont:<cont>, env:<env>){} =
+	IF list?(<expr>)
+		IF empty?(<expr>)
+			{expr:()} => <cont>
+		ELSE
+			<apply> := actor(apply_seq, {acc:(), form:rest(<expr>), cont:<cont>, env:<env>})
+			{expr:first(<expr>), cont:<apply>, env:<env>} => reduce
+	ELSE
+		{expr:_} => <cont>
+
+collect_par(op:<op>, i:<i>, expr:<expr>){acc:<acc>, n:<n>, cont:<cont>}
+	IF equal?(<op>, n)
+		<n> := <n> + <i>
+	ELIF equal?(<op>, i)
+		<acc> := map_put(<acc>, <i>, <expr>)
+		<n> := <n> - 1
+	IF zero?(n)
+		{expr:<acc>} => <cont>
+	ELSE
+		become(collect_par, {acc:<acc>, n:<n>, cont:<cont>})
+
+eval_par(expr:<expr>){i:<i>, cont:<collect>}
+	{op:i, i:<i>, expr:<expr>} => <collect>
+
+apply_par(i:<i>, form:<form>){cont:<collect>, env:<env>} =
+	IF empty?(<form>)
+		{op:n, i:<i>} => <collect>
+	ELSE
+		<actor> = actor(eval_par, {i:<i>, cont:<collect>})
+		{expr:first(<form>), cont:<actor>, env:<env>} => reduce
+		{i:(<i> + 1), form:rest(<form>)} => self()
+
+reduce_par(expr:<expr>, cont:<cont>, env:<env>){} =
+	IF list?(<expr>)
+		IF empty?(<expr>)
+			{expr:()} => <cont>
+		ELSE
+			<collect> := actor(collect_par, {acc:(), n:0, cont:<cont>})
+			<apply> := actor(apply_par, {cont:<collect>, env:<env>})
+			{i:0, form:<expr>} => <apply>
+	ELSE
+		{expr:_} => <cont>

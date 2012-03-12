@@ -1,0 +1,23 @@
+;;;
+;;; Stateful Queue (after SICP 3.3.2)
+;;;
+
+($define! q? pair?)
+($define! new-q
+	($lambda ()
+		(cons () ())))
+($define! q-empty?
+	($lambda (q)
+		(null? (car q))))
+($define! q-put!
+	($lambda (q x)
+		($let ((item (cons x ())))
+			($if (null? (car q))
+				(set-car! q item)
+				(set-cdr! (cdr q) item))
+			(set-cdr! q item))))
+($define! q-take!
+	($lambda (q)
+		($let ((item (car q)))
+			(set-car! q (cdr item))
+			(car item))))
