@@ -1,0 +1,10 @@
+*~
+*.o
+*.a
+core
+*.exe
+*.stackdump
+*.dbg
+*.orig
+._*
+.DS_Store
