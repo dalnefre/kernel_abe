@@ -512,7 +512,7 @@ str_to_cons(char* in)
 				XDBUG_PRINT("", ("list begin"));
 				++in;		/* consume character */
 				for (;;) {
-					while (isspace(*in)) {
+					while (isspace((int)(*in))) {
 						++in;		/* consume character */
 					}
 					if (*in == ')') {
@@ -528,7 +528,7 @@ str_to_cons(char* in)
 						}
 						CQ_PUT(q, p);
 						in = nextptr;
-						while (isspace(*in)) {
+						while (isspace((int)(*in))) {
 							++in;		/* consume character */
 						}
 						if (*in == ')') {
