@@ -4,7 +4,7 @@
  * Copyright 2012 Dale Schumacher.  ALL RIGHTS RESERVED.
  */
 static char	_Program[] = "Kernel";
-static char	_Version[] = "2012-03-11";
+static char	_Version[] = "2012-03-19";
 static char	_Copyright[] = "Copyright 2012 Dale Schumacher";
 
 #include <getopt.h>
@@ -1619,6 +1619,36 @@ BEH_DECL(env_type)
 }
 
 /**
+LET make_env_args_beh(cust, env) = \parent.[
+	CREATE env' WITH env_type(parent, ())
+	SEND env' TO cust
+]
+**/
+static
+BEH_DECL(make_env_args_beh)
+{
+	CONS* state = MINE;
+	CONS* cust;
+	CONS* parent = WHAT;
+	CONS* env_;
+
+	DBUG_ENTER("make_env_args_beh");
+	ENSURE(is_pr(state));
+	cust = hd(state);
+	ENSURE(actorp(cust));
+
+	DBUG_PRINT("parent", ("%s", cons_to_str(parent)));
+	if (is_pr(parent)) {
+		ENSURE(nilp(tl(parent)));  /* FIXME: support multiple parents */
+		parent = hd(parent);
+		ENSURE(actorp(parent));
+	}
+	env_ = ACTOR(env_type, pr(parent, NIL));
+	SEND(cust, env_);
+	DBUG_RETURN;
+}
+
+/**
 LET list_oper = \(cust, req).[
 	CASE req OF
 	(#comb, opnds, env) : [
@@ -1760,6 +1790,36 @@ BEH_DECL(define_args_beh)
 	DBUG_PRINT("expr", ("%s", cons_to_str(expr)));
 	k_value = ACTOR(define_match_beh, pr(cust, pr(ptree, env)));
 	SEND(expr, pr(k_value, pr(ATOM("eval"), env)));
+	DBUG_RETURN;
+}
+
+/**
+LET eval_args_beh(cust, env) = \(expr, env', NIL).[
+	SEND (cust, #eval, env') TO expr
+]
+**/
+static
+BEH_DECL(eval_args_beh)
+{
+	CONS* state = MINE;
+	CONS* cust;
+	CONS* msg = WHAT;
+	CONS* expr;
+	CONS* env_;
+
+	DBUG_ENTER("eval_args_beh");
+	ENSURE(is_pr(state));
+	cust = hd(state);
+	ENSURE(actorp(cust));
+	ENSURE(is_pr(msg));
+	expr = hd(msg);
+	ENSURE(is_pr(tl(msg)));
+	env_ = hd(tl(msg));
+	ENSURE(nilp(tl(tl(msg))));
+
+	DBUG_PRINT("expr", ("%s", cons_to_str(expr)));
+	DBUG_PRINT("env'", ("%s", cons_to_str(env_)));
+	SEND(expr, pr(cust, pr(ATOM("eval"), env_)));
 	DBUG_RETURN;
 }
 
@@ -2433,6 +2493,8 @@ CREATE False WITH bool_type(FALSE)
 CREATE Nil WITH null_type()
 CREATE Ignore WITH any_type()
 
+ground_env("make-environment") = NEW appl_type(NEW args_oper(make_env_args_beh))
+ground_env("eval") = NEW appl_type(NEW args_oper(eval_args_beh))
 ground_env("copy-es-immutable") = NEW appl_type(NEW args_oper(copy_es_immutable_args_beh))
 ground_env("set-car!") = NEW appl_type(NEW args_oper(set_car_args_beh))
 ground_env("set-cdr!") = NEW appl_type(NEW args_oper(set_cdr_args_beh))
@@ -2484,6 +2546,12 @@ init_kernel()
 	a_ignore = ACTOR(any_type, NIL);
 	cfg_add_gc_root(CFG, a_ignore);		/* protect from gc */
 
+	ground_map = map_put(ground_map, ATOM("make-environment"),
+		ACTOR(appl_type,
+			ACTOR(args_oper, MK_FUNC(make_env_args_beh))));
+	ground_map = map_put(ground_map, ATOM("eval"),
+		ACTOR(appl_type,
+			ACTOR(args_oper, MK_FUNC(eval_args_beh))));
 	ground_map = map_put(ground_map, ATOM("copy-es-immutable"),
 		ACTOR(appl_type,
 			ACTOR(args_oper, MK_FUNC(copy_es_immutable_args_beh))));
