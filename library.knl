@@ -74,6 +74,17 @@
 				(equal? (cdr x) (cdr y))
 				#f)
 			(eq? x y))))
+($define! apply
+	($lambda (appv arg . opt)
+		(eval (cons (unwrap appv) arg)
+			($if (null? opt)
+				(make-environment)
+				(car opt)))))
+($define! list*
+	($lambda (head . tail)
+		($if (null? tail)
+			head
+			(cons head (apply list* tail)))))
 ($define! $let
 	($vau (bindings . body) env
 		(eval (cons (list* $lambda (map car bindings) body)
