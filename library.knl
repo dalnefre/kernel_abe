@@ -92,6 +92,12 @@
 		env)))
 
 ;;;
+;;; Concurrency
+;;;
+
+($define! $parallel list)  ; only valid if 'list' evals in parallel
+
+;;;
 ;;; Bonus definitions
 ;;;
 

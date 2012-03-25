@@ -4,7 +4,7 @@
  * Copyright 2012 Dale Schumacher.  ALL RIGHTS RESERVED.
  */
 static char	_Program[] = "Kernel";
-static char	_Version[] = "2012-03-19";
+static char	_Version[] = "2012-03-25";
 static char	_Copyright[] = "Copyright 2012 Dale Schumacher";
 
 #include <getopt.h>
@@ -18,6 +18,7 @@ static FILE* input_file = NULL;
 static FILE* output_file = NULL;
 
 /* WARNING! THESE GLOBAL ACTORS MUST BE INITIALIZED IN EACH CONFIGURATION */
+static CONS* a_sink;
 static CONS* a_inert;
 static CONS* a_true;
 static CONS* a_false;
@@ -2487,12 +2488,86 @@ BEH_DECL(copy_es_immutable_args_beh)
 }
 
 /**
+LET concurrent_args_beh(env) = \args.[
+	CASE args OF
+	(first, rest) : [
+		SEND (sink, #eval, env) TO first
+		SEND rest TO SELF
+	]
+	END
+]
+**/
+static
+BEH_DECL(concurrent_args_beh)
+{
+	CONS* env = MINE;
+	CONS* args = WHAT;
+
+	DBUG_ENTER("concurrent_args_beh");
+
+	DBUG_PRINT("env", ("%s", cons_to_str(env)));
+	DBUG_PRINT("args", ("%s", cons_to_str(args)));
+	if (is_pr(args)) {
+		CONS* first = hd(args);
+		CONS* rest = tl(args);
+
+		SEND(first, pr(a_sink, pr(ATOM("eval"), env)));
+		SEND(SELF, rest);
+	}
+	DBUG_RETURN;
+}
+/**
+LET concurrent_oper = \(cust, req).[
+	CASE req OF
+	(#comb, opnds, env) : [
+		CREATE k_args WITH concurrent_args_beh(env)
+		SEND (k_args, #as_tuple) TO opnds
+		SEND Inert TO cust
+	]
+	_ : oper_type(cust, req)
+	END
+]
+**/
+static
+BEH_DECL(concurrent_oper)
+{
+	CONS* msg = WHAT;
+	CONS* cust;
+	CONS* req;
+
+	DBUG_ENTER("concurrent_oper");
+	ENSURE(is_pr(msg));
+	cust = hd(msg);
+	ENSURE(actorp(cust));
+	req = tl(msg);
+
+	DBUG_PRINT("cust", ("%s", cons_to_str(cust)));
+	DBUG_PRINT("req", ("%s", cons_to_str(req)));
+	if (is_pr(req) && is_pr(tl(req))
+	&& (hd(req) == ATOM("comb"))) {
+		CONS* opnds = hd(tl(req));
+		CONS* env = tl(tl(req));
+		CONS* k_args;
+
+		k_args = ACTOR(concurrent_args_beh, env);
+		SEND(opnds, pr(k_args, ATOM("as_tuple")));
+		SEND(cust, a_inert);
+	} else {
+		oper_type(CFG);  /* DELEGATE BEHAVIOR */
+	}
+	DBUG_RETURN;
+}
+
+/**
+CREATE sink WITH \_.[]
+
 CREATE Inert WITH unit_type()
 CREATE True WITH bool_type(TRUE)
 CREATE False WITH bool_type(FALSE)
 CREATE Nil WITH null_type()
 CREATE Ignore WITH any_type()
 
+ground_env("$concurrent") = NEW concurrent_oper
 ground_env("make-environment") = NEW appl_type(NEW args_oper(make_env_args_beh))
 ground_env("eval") = NEW appl_type(NEW args_oper(eval_args_beh))
 ground_env("copy-es-immutable") = NEW appl_type(NEW args_oper(copy_es_immutable_args_beh))
@@ -2530,6 +2605,9 @@ init_kernel()
 	intern_map = pr(NIL, NIL);
 	cfg_add_gc_root(CFG, intern_map);	/* protect from gc */
 
+	a_sink = ACTOR(sink_beh, NIL);
+	cfg_add_gc_root(CFG, a_sink);		/* protect from gc */
+	
 	input_file = stdin;
 	output_file = stdout;
 	current_source = file_source(input_file);
@@ -2546,6 +2624,8 @@ init_kernel()
 	a_ignore = ACTOR(any_type, NIL);
 	cfg_add_gc_root(CFG, a_ignore);		/* protect from gc */
 
+	ground_map = map_put(ground_map, ATOM("$concurrent"),
+		ACTOR(concurrent_oper, NIL));
 	ground_map = map_put(ground_map, ATOM("make-environment"),
 		ACTOR(appl_type,
 			ACTOR(args_oper, MK_FUNC(make_env_args_beh))));
@@ -2755,6 +2835,10 @@ run_repl(int batch)
 			break;		/* abnormal return */
 		}
 		DBUG_PRINT("", ("%d messages delivered (batch %d).", (batch - remain), batch));
+		if (remain == 0) {
+			fprintf(stderr, "\nMessage limit of %d exceeded!\n", batch);
+			fprintf(stderr, "%d undelivered message(s)\n", cfg->q_count);
+		}
 		if (cfg->t_count > 0) {
 			DBUG_PRINT("", ("waiting for timed event..."));
 			sleep(1);
@@ -2879,7 +2963,7 @@ read_eval_print_loop(FILE* f, BOOL interactive)
 		} else if (!actorp(expr)) {
 			DBUG_RETURN expr;  /* error */
 		}
-		cust = ACTOR(sink_beh, NIL);
+		cust = a_sink;
 		if (interactive) {
 			cust = ACTOR(report_beh, cust);
 		}
