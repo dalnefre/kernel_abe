@@ -13,6 +13,8 @@ static char	_Copyright[] = "Copyright 2012 Dale Schumacher";
 #include "dbug.h"
 DBUG_UNIT("kernel");
 
+static int M_limit = 1000;  /* actor messaging dispatch limit */
+
 static BEH_PROTO;	/* ==== GLOBAL ACTOR CONFIGURATION ==== */
 static FILE* input_file = NULL;
 static FILE* output_file = NULL;
@@ -2968,7 +2970,7 @@ read_eval_print_loop(FILE* f, BOOL interactive)
 			cust = ACTOR(report_beh, cust);
 		}
 		SEND(expr, pr(cust, pr(ATOM("eval"), a_ground_env)));  /* evaluate */
-		run_repl(1000);  /* actor dispatch loop */
+		run_repl(M_limit);  /* actor dispatch loop */
 	}	
 }
 
@@ -3011,7 +3013,7 @@ assert_eval(CONS* expr, CONS* expect)
 	cust = ACTOR(assert_beh, expect);
 	cust = ACTOR(report_beh, cust);
 	SEND(expr, pr(cust, pr(ATOM("eval"), a_ground_env)));
-	run_test(1000);
+	run_test(M_limit);
 	assert(_THIS(cust) == abort_beh);
 }
 
@@ -3263,7 +3265,7 @@ void
 usage(void)
 {
 	fprintf(stderr, "\
-usage: %s [-ti] [-# dbug] file...\n",
+usage: %s [-ti]  [-M message limit] [-# dbug] file...\n",
 		_Program);
 	exit(EXIT_FAILURE);
 }
@@ -3283,10 +3285,11 @@ main(int argc, char** argv)
 
 	DBUG_ENTER("main");
 	DBUG_PROCESS(argv[0]);
-	while ((c = getopt(argc, argv, "ti#:V")) != EOF) {
+	while ((c = getopt(argc, argv, "tiM:#:V")) != EOF) {
 		switch(c) {
 		case 't':	test_mode = TRUE;		break;
 		case 'i':	interactive = TRUE;		break;
+		case 'M':	M_limit = atoi(optarg);	break;
 		case '#':	DBUG_PUSH(optarg);		break;
 		case 'V':	banner();				exit(EXIT_SUCCESS);
 		case '?':							usage();
